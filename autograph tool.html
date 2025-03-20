@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autograph Placement Tool</title>
+    <style>
+      /* General Body Styling */
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f9f9f9;
+        line-height: 1.6;
+        color: #333;
+        padding: 20px;
+        margin: 0;
+      }
+
+      /* Container Styling */
+      .container {
+        max-width: 800px;
+        margin: auto;
+        background: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        /* Add this */
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+        font-size: 16px;
+        margin-bottom: 15px;
+      }
+
+      .canvas-container {
+        position: relative;
+        display: inline-block;
+        text-align: center;
+      }
+
+      canvas {
+        display: block;
+        border-radius: 8px;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+        max-width: 100%;
+        max-height: 450px;
+      }
+
+      #heatmapCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        opacity: 1;
+        pointer-events: none;
+      }
+
+      /* Headings */
+      h1,
+      h2,
+      h3,
+      h4 {
+        color: #333;
+        text-align: center;
+        /* Center all headings */
+      }
+
+      h1 {
+        font-size: 32px;
+        margin-bottom: 20px;
+      }
+
+      h2 {
+        font-size: 24px;
+        border-bottom: 2px solid #007bff;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+        text-align: center
+      }
+
+      h3 {
+        font-size: 18px;
+        margin-bottom: 10px;
+        color: #555;
+        text-align: center
+      }
+
+      h4 {
+        font-size: 14px;
+        margin-bottom: 10px;
+        color: #555;
+        text-align: center
+      }
+
+      /* Paragraphs */
+      p {
+        margin-bottom: 16px;
+        font-size: 20px;
+        line-height: 1.8;
+        text-align: center
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Best Autograph Placement & Pen Color Tool</h2>
+    <p>
+      <strong>Where should they sign? What pen color works best?</strong>
+      <br> Upload your image, select a pen color, and get recommendations.
+    </p>
+    <div class="container">
+      <h3>Step 1: Upload Your Image</h3>
+      <input type="file" id="imageInput" accept="image/jpeg, image/png, image/webp">
+      <h3>Step 2: Select a Pen Color</h3>
+      <select id="penColor">
+        <option value="black" selected>Black</option>
+        <!-- Default to Black -->
+        <option value="blue">Blue</option>
+        <option value="silver">Silver</option>
+        <option value="gold">Gold</option>
+        <option value="white">White</option>
+        <option value="red">Red</option>
+        <option value="custom">Custom (HEX)</option>
+      </select>
+      <div id="hexInputContainer" style="display: none;">
+        <label for="customHex">Enter Custom HEX Color:</label>
+        <input type="text" id="customHex" placeholder="#ff6600">
+      </div>
+      <br>
+      <h3>🔥 Best Signing Areas (Heat Map)</h3>
+      <div class="canvas-container">
+        <canvas id="signatureCanvas"></canvas>
+        <canvas id="heatmapCanvas"></canvas>
+      </div>
+      <br>
+      <h4>🛠 Adjust Heat Map Visibility</h4>
+      <input type="range" id="heatmapOpacity" min="0" max="1" step="0.1" value="1">
+      <p>💡 Tip: Green areas are the best locations for autograph placement.</p>
+      <br>
+      <h3>✍️ Final Signature Placement</h3>
+      <div class="canvas-container">
+        <canvas id="finalSignatureCanvas"></canvas>
+      </div>
+      <br>
+      <p>💡 Tip: You can drag the signature to your preferred location.</p>
+      <h3>🎨 Recommended Pen Colors</h3>
+      <p id="recommendedColors">(Will be generated after processing.)</p>
+      <h3>🛒 Buy Pens on Amazon</h3>
+      <p id="amazonLinks"></p>
+    </div>
+  </body>
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+          console.log("✅ Signature Placement Tool Loaded");
+          const imageInput = document.getElementById("imageInput");
+          const penColorSelect = document.getElementById("penColor");
+          const customHexInput = document.getElementById("customHex");
+          const heatmapCanvas = document.getElementById("heatmapCanvas");
+          const signatureCanvas = document.getElementById("signatureCanvas");
+          const heatmapCtx = heatmapCanvas?.getContext("2d", {
+            willReadFrequently: true
+          });
+          const signatureCtx = signatureCanvas?.getContext("2d", {
+            willReadFrequently: true
+          });
+          const opacitySlider = document.getElementById("heatmapOpacity");
+          let currentImage = null;
+          let selectedPenColor = "black";
+          let isDragging = false;
+          let dragOffsetX = 0;
+          let dragOffsetY = 0;
+          let currentSignatureX = 0;
+          let currentSignatureY = 0;
+
+          function generateHeatMap(img, penColor = "black") {
+            if (!heatmapCtx) return;
+            console.log(`🎨 Generating Heat Map for ${penColor}...`);
+            heatmapCanvas.width = img.width;
+            heatmapCanvas.height = img.height;
+            heatmapCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+            heatmapCtx.drawImage(img, 0, 0, heatmapCanvas.width, heatmapCanvas.height);
+            let imageData = heatmapCtx.getImageData(0, 0, img.width, img.height);
+            let pixels = imageData.data;
+            let contrastValues = new Float32Array(pixels.length / 4); // Avoid modifying array dynamically
+            let penRGB = hexToRGB(penColor.trim().toLowerCase());
+            if (!penRGB) {
+              console.error(`❌ Invalid pen color: ${penColor}. Using default black.`);
+              penRGB = {
+                r: 0,
+                g: 0,
+                b: 0
+              }; // Default to black
+            }
+            let minContrast = Number.MAX_VALUE,
+              maxContrast = Number.MIN_VALUE;
+            // First pass: Calculate contrast for all pixels
+            for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
+              let r = pixels[i],
+                g = pixels[i + 1],
+                b = pixels[i + 2];
+              let luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+              let contrast = Math.abs(luminance - (0.299 * penRGB.r + 0.587 * penRGB.g + 0.114 * penRGB.b));
+              contrastValues[j] = contrast;
+              if (contrast < minContrast) minContrast = contrast;
+              if (contrast > maxContrast) maxContrast = contrast;
+            }
+            let contrastRange = maxContrast - minContrast || 1; // Prevent divide by zero
+            console.log(`📊 Contrast Range: Min = ${minContrast}, Max = ${maxContrast}`);
+            // Second pass: Apply contrast visualization
+            for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
+              let contrast = contrastValues[j];
+              let normalized = (contrast - minContrast) / contrastRange;
+              let scaledIntensity = 20 + (normalized * 200); // Scale intensity
+              pixels[i] = 255 - scaledIntensity; // Red (More red = Bad contrast)
+              pixels[i + 1] = scaledIntensity; // Green (More green = Good contrast)
+              pixels[i + 2] = 0; // Blue always 0 for heatmap
+            }
+            heatmapCtx.putImageData(imageData, 0, 0);
+            console.log("✅ Heat Map Updated");
+          }
+
+          function recommendBestPenColors(img) {
+            if (!heatmapCtx || !img) return;
+            console.log("🎨 Evaluating Best Pen Colors...");
+            const penColors = ["black", "white", "red", "blue", "gold", "silver"];
+            const amazonLinks = {
+              "black": {
+                deco: "https://amzn.to/41xDh3b",
+                sharpie: "https://amzn.to/3DPpbCo"
+              },
+              "blue": {
+                deco: "https://amzn.to/3FPGXWA",
+                sharpie: "https://amzn.to/4bzbx2P"
+              },
+              "silver": {
+                deco: "https://amzn.to/41ZwZcC",
+                sharpie: "https://amzn.to/42c0eKC"
+              },
+              "gold": {
+                deco: "https://amzn.to/3DS8sOP",
+                sharpie: "https://amzn.to/42c0eKC"
+              },
+              "white": {
+                deco: "https://amzn.to/3DCzxWj",
+                sharpie: null
+              }, // No Sharpie for white
+              "red": {
+                deco: "https://amzn.to/3FxdtwS",
+                sharpie: "https://amzn.to/4bB0zd8"
+              }
+            };
+            let contrastScores = [];
+            penColors.forEach((color) => {
+              generateHeatMap(img, color);
+              let imageData = heatmapCtx.getImageData(0, 0, img.width, img.height);
+              let pixels = imageData.data;
+              let totalGreen = 0;
+              for (let i = 0; i < pixels.length; i += 4) {
+                totalGreen += pixels[i + 1]; // Green channel
+              }
+              contrastScores.push({
+                color,
+                score: totalGreen
+              });
+            });
+            contrastScores.sort((a, b) => b.score - a.score);
+            let bestColors = contrastScores.slice(0, 2).map(c => c.color);
+            console.log(`🎨 Best Pen Colors: ${bestColors.join(", ")}`);
+            document.getElementById("recommendedColors").textContent = `Best Pen Colors: ${bestColors.join(" & ")}`;
+            // ✅ Restore original heatmap
+            generateHeatMap(img, selectedPenColor);
+            // ✅ Update Amazon links
+            let amazonLinksHTML = bestColors.map(color => {
+              let links = amazonLinks[color];
+              let decoLink = `
+												<a href="${links.deco}" target="_blank">Deco Color</a>`;
+              let sharpieLink = links.sharpie ? `
+												<a href="${links.sharpie}" target="_blank">Sharpie</a>` : ""; // Skip Sharpie if not available
+              return `
+												<strong>${color.toUpperCase()}:</strong> ${decoLink} ${sharpieLink}`;
+            }).join(" < br > ");
+              document.getElementById("amazonLinks").innerHTML = amazonLinksHTML;
+            }
+            // Helper function to convert HEX to RGB
+            function hexToRGB(hex) {
+              if (!hex || typeof hex !== "string") return {
+                r: 0,
+                g: 0,
+                b: 0
+              }; // Default to black if invalid
+              const predefinedColors = {
+                "black": {
+                  r: 0,
+                  g: 0,
+                  b: 0
+                },
+                "white": {
+                  r: 255,
+                  g: 255,
+                  b: 255
+                },
+                "red": {
+                  r: 255,
+                  g: 0,
+                  b: 0
+                },
+                "blue": {
+                  r: 0,
+                  g: 0,
+                  b: 255
+                },
+                "gold": {
+                  r: 255,
+                  g: 215,
+                  b: 0
+                },
+                "silver": {
+                  r: 192,
+                  g: 192,
+                  b: 192
+                },
+              };
+              let cleanedHex = hex.trim().toLowerCase(); // Normalize input
+              if (predefinedColors[cleanedHex]) return predefinedColors[cleanedHex];
+              let match = cleanedHex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+              return match ? {
+                r: parseInt(match[1], 16),
+                g: parseInt(match[2], 16),
+                b: parseInt(match[3], 16)
+              } : {
+                r: 0,
+                g: 0,
+                b: 0
+              }; // Default to black if invalid
+            }
+
+            function applySobelFilter(grayMap, width, height) {
+              let sobelMap = new Uint8Array(grayMap.length);
+              const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
+              const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
+              for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                  let pixelIndex = y * width + x;
+                  let gx = 0,
+                    gy = 0,
+                    k = 0;
+                  for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                      let sample = grayMap[(y + ky) * width + (x + kx)];
+                      gx += sample * sobelX[k];
+                      gy += sample * sobelY[k];
+                      k++;
+                    }
+                  }
+                  let edgeValue = Math.sqrt(gx * gx + gy * gy);
+                  sobelMap[pixelIndex] = Math.min(255, edgeValue);
+                }
+              }
+              return sobelMap;
+            }
+
+            function processImage(file) {
+              if (!file) return;
+              const validTypes = ["image/jpeg", "image/png", "image/webp"];
+              if (!validTypes.includes(file.type)) {
+                alert("❌ Invalid file type. Please upload a JPG, PNG, or WebP image.");
+                return;
+              }
+              console.log("📂 Image Uploaded:", file.name);
+              const img = new Image();
+              img.src = URL.createObjectURL(file);
+              img.onload = function() {
+                if (img.width < 300 || img.height < 300) {
+                  alert("⚠️ Image is too small! Please upload an image at least 300x300 pixels.");
+                  URL.revokeObjectURL(img.src);
+                  return;
+                }
+                currentImage = img;
+                heatmapCanvas.width = img.width;
+                heatmapCanvas.height = img.height;
+                signatureCanvas.width = img.width;
+                signatureCanvas.height = img.height;
+                finalSignatureCanvas.width = img.width;
+                finalSignatureCanvas.height = img.height;
+                signatureCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+                signatureCtx.drawImage(img, 0, 0, signatureCanvas.width, signatureCanvas.height);
+                generateHeatMap(img, selectedPenColor);
+                placeSignatureOptimally();
+                URL.revokeObjectURL(img.src);
+              };
+              img.onerror = function() {
+                console.error("❌ Failed to load image.");
+                URL.revokeObjectURL(img.src);
+              };
+            }
+
+            function placeSignatureOptimally() {
+              if (!currentImage || !signatureCtx || !heatmapCtx) return;
+              console.log("📍 Finding the best location for the signature...");
+              let heatmapData = heatmapCtx.getImageData(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+              let pixels = heatmapData.data;
+              // Calculate signature dimensions
+              const sigWidth = heatmapCanvas.width * 0.25;
+              const sigHeight = sigWidth * 0.4;
+              // Define regions to check - focus on corners and edges which are typical signature spots
+              const regions = [{
+                name: "bottom-right",
+                x: heatmapCanvas.width - sigWidth - 20,
+                y: heatmapCanvas.height - sigHeight - 20
+              }, {
+                name: "bottom-left",
+                x: 20,
+                y: heatmapCanvas.height - sigHeight - 20
+              }, {
+                name: "top-right",
+                x: heatmapCanvas.width - sigWidth - 20,
+                y: 20
+              }, {
+                name: "top-left",
+                x: 20,
+                y: 20
+              }, {
+                name: "center-right",
+                x: heatmapCanvas.width - sigWidth - 20,
+                y: (heatmapCanvas.height - sigHeight) / 2
+              }, {
+                name: "center-left",
+                x: 20,
+                y: (heatmapCanvas.height - sigHeight) / 2
+              }, {
+                name: "center-bottom",
+                x: (heatmapCanvas.width - sigWidth) / 2,
+                y: heatmapCanvas.height - sigHeight - 20
+              }, {
+                name: "center-top",
+                x: (heatmapCanvas.width - sigWidth) / 2,
+                y: 20
+              }];
+              // Then add more regions throughout the image
+              const stepSize = Math.floor(heatmapCanvas.width / 20); // Finer grid search
+              for (let y = 20; y < heatmapCanvas.height - sigHeight - 20; y += stepSize) {
+                for (let x = 20; x < heatmapCanvas.width - sigWidth - 20; x += stepSize) {
+                  regions.push({
+                    name: `grid-${x}-${y}`,
+                    x,
+                    y
+                  });
+                }
+              }
+              // Score each region
+              let bestRegion = null;
+              let bestScore = -Infinity;
+              regions.forEach(region => {
+                // Calculate the average contrast score for this region
+                let totalScore = 0;
+                let samplesCount = 0;
+                // Sample several points in the region rather than just one pixel
+                for (let sy = 0; sy < sigHeight; sy += stepSize) {
+                  for (let sx = 0; sx < sigWidth; sx += stepSize) {
+                    const x = Math.floor(region.x + sx);
+                    const y = Math.floor(region.y + sy);
+                    // Skip if outside image bounds
+                    if (x < 0 || y < 0 || x >= heatmapCanvas.width || y >= heatmapCanvas.height) continue;
+                    const index = (y * heatmapCanvas.width + x) * 4;
+                    const contrastScore = pixels[index + 1]; // Green channel stores contrast
+                    totalScore += contrastScore;
+                    samplesCount++;
+                  }
+                }
+                // Avoid division by zero
+                if (samplesCount === 0) return;
+                const averageScore = totalScore / samplesCount;
+                // Adjust score based on position preference
+                let positionBonus = 0;
+                // Prefer traditional signature spots
+                if (region.name.includes("bottom")) positionBonus += 10;
+                if (region.name.includes("right")) positionBonus += 5;
+                // Avoid center of image
+                if (region.name === "center-center") positionBonus -= 20;
+                const finalScore = averageScore + positionBonus;
+                if (finalScore > bestScore) {
+                  bestScore = finalScore;
+                  bestRegion = region;
+                }
+              });
+              if (!bestRegion) {
+                console.error("❌ Could not find a suitable signature placement location");
+                return;
+              }
+              console.log(`✅ Best location found in ${bestRegion.name} at (${bestRegion.x}, ${bestRegion.y}) with score: ${bestScore}`);
+              // Update final canvas with the signature at the best position
+              updateFinalSignatureCanvas(bestRegion.x, bestRegion.y);
+            }
+
+            function updateFinalSignatureCanvas(x, y) {
+              const finalCanvas = document.getElementById("finalSignatureCanvas");
+              const finalCtx = finalCanvas?.getContext("2d");
+              if (!finalCanvas || !finalCtx || !currentImage) {
+                console.error("❌ Final signature canvas is missing.");
+                return;
+              }
+              // Store the current signature position
+              currentSignatureX = x;
+              currentSignatureY = y;
+              // Set canvas size
+              finalCanvas.width = currentImage.width;
+              finalCanvas.height = currentImage.height;
+              // Draw the original image (without heatmap)
+              finalCtx.clearRect(0, 0, finalCanvas.width, finalCanvas.height);
+              finalCtx.drawImage(currentImage, 0, 0, finalCanvas.width, finalCanvas.height);
+              // Load the signature - consider using a local asset instead of remote URL
+              let sigImg = new Image();
+              sigImg.crossOrigin = "Anonymous"; // Prevent CORS issues
+              sigImg.src = "https://talesfromthecollection.com/wp-content/uploads/2023/03/Taylor-Swift-Autograph-e1679144261668.png";
+              sigImg.onload = function() {
+                let sigWidth = finalCanvas.width * 0.25;
+                let sigHeight = sigWidth * 0.4;
+                // Ensure the signature stays inside the image bounds
+                if (x + sigWidth > finalCanvas.width) {
+                  x = finalCanvas.width - sigWidth;
+                  currentSignatureX = x;
+                }
+                if (y + sigHeight > finalCanvas.height) {
+                  y = finalCanvas.height - sigHeight;
+                  currentSignatureY = y;
+                }
+                // Create an off-screen canvas to recolor the signature
+                let tempCanvas = document.createElement("canvas");
+                let tempCtx = tempCanvas.getContext("2d");
+                tempCanvas.width = sigWidth;
+                tempCanvas.height = sigHeight;
+                // Draw the signature
+                tempCtx.drawImage(sigImg, 0, 0, sigWidth, sigHeight);
+                // Apply color filter
+                let color = hexToRGB(selectedPenColor);
+                tempCtx.globalCompositeOperation = "source-in";
+                tempCtx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
+                tempCtx.fillRect(0, 0, sigWidth, sigHeight);
+                // Add a subtle shadow for better visibility
+                finalCtx.shadowColor = 'rgba(0,0,0,0.3)';
+                finalCtx.shadowBlur = 5;
+                finalCtx.shadowOffsetX = 2;
+                finalCtx.shadowOffsetY = 2;
+                // Draw the recolored signature onto the final canvas
+                finalCtx.drawImage(tempCanvas, x, y);
+                // Reset shadow
+                finalCtx.shadowColor = 'transparent';
+                finalCtx.shadowBlur = 0;
+                finalCtx.shadowOffsetX = 0;
+                finalCtx.shadowOffsetY = 0;
+                console.log(`✍️ Final Signature placed successfully at (${x}, ${y}) in ${selectedPenColor}`);
+                // Also update the best pen color recommendations
+                recommendBestPenColors(currentImage);
+              };
+              sigImg.onerror = function() {
+                console.error("❌ Failed to load signature image");
+              };
+            }
+            // Add this function to add drag functionality
+            function setupDraggableSignature() {
+              const finalCanvas = document.getElementById("finalSignatureCanvas");
+              if (!finalCanvas) return;
+              // Add event listeners for dragging
+              finalCanvas.addEventListener("mousedown", startDrag);
+              finalCanvas.addEventListener("mousemove", drag);
+              finalCanvas.addEventListener("mouseup", endDrag);
+              finalCanvas.addEventListener("mouseleave", endDrag);
+              // Touch support for mobile
+              finalCanvas.addEventListener("touchstart", handleTouchStart, {
+                passive: false
+              });
+              finalCanvas.addEventListener("touchmove", handleTouchMove, {
+                passive: false
+              });
+              finalCanvas.addEventListener("touchend", handleTouchEnd);
+              finalCanvas.addEventListener("touchcancel", handleTouchEnd);
+              // Ensure the canvas is draggable
+              finalCanvas.style.cursor = "move";
+            }
+
+            function startDrag(e) {
+              if (!currentImage) return;
+              const finalCanvas = document.getElementById("finalSignatureCanvas");
+              const rect = finalCanvas.getBoundingClientRect();
+              const scaleX = finalCanvas.width / rect.width;
+              const scaleY = finalCanvas.height / rect.height;
+              const mouseX = (e.clientX - rect.left) * scaleX;
+              const mouseY = (e.clientY - rect.top) * scaleY;
+              const sigWidth = finalCanvas.width * 0.25;
+              const sigHeight = sigWidth * 0.4;
+              // Check if click is within the signature area
+              if (mouseX >= currentSignatureX && mouseX <= currentSignatureX + sigWidth && mouseY >= currentSignatureY && mouseY <= currentSignatureY + sigHeight) {
+                isDragging = true;
+                dragOffsetX = mouseX - currentSignatureX;
+                dragOffsetY = mouseY - currentSignatureY;
+                finalCanvas.style.cursor = "grabbing";
+                e.preventDefault();
+              }
+            }
+
+            function drag(e) {
+              if (!isDragging || !currentImage) return;
+              const finalCanvas = document.getElementById("finalSignatureCanvas");
+              const rect = finalCanvas.getBoundingClientRect();
+              const scaleX = finalCanvas.width / rect.width;
+              const scaleY = finalCanvas.height / rect.height;
+              const mouseX = (e.clientX - rect.left) * scaleX;
+              const mouseY = (e.clientY - rect.top) * scaleY;
+              const newX = mouseX - dragOffsetX;
+              const newY = mouseY - dragOffsetY;
+              // Update the signature position
+              updateFinalSignatureCanvas(newX, newY);
+              e.preventDefault();
+            }
+
+            function endDrag() {
+              if (isDragging) {
+                const finalCanvas = document.getElementById("finalSignatureCanvas");
+                finalCanvas.style.cursor = "move";
+                isDragging = false;
+              }
+            }
+            // Touch event handlers
+            function handleTouchStart(e) {
+              if (!currentImage || e.touches.length !== 1) return;
+              const touch = e.touches[0];
+              const mouseEvent = new MouseEvent("mousedown", {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+              });
+              startDrag(mouseEvent);
+              e.preventDefault(); // Prevent scrolling while dragging
+            }
+
+            function handleTouchMove(e) {
+              if (!isDragging || !currentImage || e.touches.length !== 1) return;
+              const touch = e.touches[0];
+              const mouseEvent = new MouseEvent("mousemove", {
+                clientX: touch.clientX,
+                clientY: touch.clientY
+              });
+              drag(mouseEvent);
+              e.preventDefault(); // Prevent scrolling while dragging
+            }
+
+            function handleTouchEnd(e) {
+              endDrag();
+            }
+            // Call this function after processing the image
+            function processImage(file) {
+              if (!file) return;
+              const validTypes = ["image/jpeg", "image/png", "image/webp"];
+              if (!validTypes.includes(file.type)) {
+                alert("❌ Invalid file type. Please upload a JPG, PNG, or WebP image.");
+                return;
+              }
+              console.log("📂 Image Uploaded:", file.name);
+              const img = new Image();
+              img.src = URL.createObjectURL(file);
+              img.onload = function() {
+                if (img.width < 300 || img.height < 300) {
+                  alert("⚠️ Image is too small! Please upload an image at least 300x300 pixels.");
+                  URL.revokeObjectURL(img.src);
+                  return;
+                }
+                currentImage = img;
+                heatmapCanvas.width = img.width;
+                heatmapCanvas.height = img.height;
+                signatureCanvas.width = img.width;
+                signatureCanvas.height = img.height;
+                finalSignatureCanvas.width = img.width;
+                finalSignatureCanvas.height = img.height;
+                signatureCtx.clearRect(0, 0, signatureCanvas.width, signatureCanvas.height);
+                signatureCtx.drawImage(img, 0, 0, signatureCanvas.width, signatureCanvas.height);
+                generateHeatMap(img, selectedPenColor);
+                placeSignatureOptimally();
+                // Set up the drag functionality after the image is processed
+                setupDraggableSignature();
+                URL.revokeObjectURL(img.src);
+              };
+              img.onerror = function() {
+                console.error("❌ Failed to load image.");
+                URL.revokeObjectURL(img.src);
+              };
+            }
+            // Add a button to reset to optimal position
+            function addResetButton() {
+              const finalCanvas = document.getElementById("finalSignatureCanvas");
+              if (!finalCanvas) return;
+              const resetBtn = document.createElement("button");
+              resetBtn.textContent = "↺ Reset to Optimal Position";
+              resetBtn.style.marginTop = "10px";
+              resetBtn.style.padding = "8px 16px";
+              resetBtn.style.backgroundColor = "#4CAF50";
+              resetBtn.style.color = "white";
+              resetBtn.style.border = "none";
+              resetBtn.style.borderRadius = "4px";
+              resetBtn.style.cursor = "pointer";
+              resetBtn.addEventListener("click", function() {
+                if (currentImage) {
+                  placeSignatureOptimally();
+                }
+              });
+              finalCanvas.parentNode.insertBefore(resetBtn, finalCanvas.nextSibling);
+            }
+            // Add reset button
+            addResetButton();
+            // ✅ Attach Event Listener for Image Upload
+            if (imageInput) {
+              imageInput.addEventListener("change", (e) => {
+                let file = e.target.files[0];
+                if (file) processImage(file);
+              });
+            }
+            // ✅ Attach Event Listener for Pen Color Selection
+            if (penColorSelect) {
+              penColorSelect.addEventListener("change", function() {
+                selectedPenColor = this.value;
+                document.getElementById("hexInputContainer").style.display = selectedPenColor === "custom" ? "block" : "none";
+                if (currentImage) {
+                  generateHeatMap(currentImage, selectedPenColor);
+                  placeSignatureOptimally();
+                }
+              });
+            }
+            // ✅ Attach Event Listener for Custom HEX Input
+            if (customHexInput) {
+              customHexInput.addEventListener("input", function() {
+                if (selectedPenColor === "custom" && currentImage) {
+                  generateHeatMap(currentImage, customHexInput.value);
+                  placeSignatureOptimally();
+                }
+              });
+            }
+            // ✅ Heatmap Opacity Slider
+            if (opacitySlider) {
+              opacitySlider.addEventListener("input", function() {
+                heatmapCanvas.style.opacity = this.value;
+              });
+            }
+          });
+  </script>
+</html>
